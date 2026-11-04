@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ -t 1 ]]; then clear; fi
+
+readonly DEPENDENCIES=(podman curl jq)
+readonly SETTINGS_FILE="wiremockctl.env"
+readonly FOLDERS=(mappings __files disabled)
+readonly COMMANDS=(init start stop list add disable enable)
+readonly SETTINGS=(WIREMOCK_IMAGE WIREMOCK_PORT WIREMOCK_TIMEOUT WIREMOCK_EDITOR)
+
+red() { printf "\033[0;31m%s\033[0m\n" "$1"; }
+blue() { printf "\033[0;34m%s\033[0m\n" "$1"; }
+green() { printf "\033[0;32m%s\033[0m\n" "$1"; }
+yellow() { printf "\033[0;33m%s\033[0m\n" "$1"; }
+magenta() { printf "\033[0;35m%s\033[0m\n" "$1"; }
+default() { printf "\033[0m%s\033[0m\n" "$1"; }
+
+label() {
+  local str="${1// /.}"
+  local dots="...................."
+  printf '%s%s: ' "$str" "${dots:${#str}}"
+}
+
+error() {
+  echo
+  red "ERROR: ${1:-}" >&2
+  exit 1
+}
+
+banner() {
+  echo
+  blue "$1"
+}
+
+cleanup() {
+  local code=$?
+  echo
+  if ((code == 0)); then
+    green "::: BASH COMPLETED :::"
+  else
+    red "::: BASH ABORTED :::"
+  fi
+  echo
+}
+
+uppercase() {
+  printf '%s' "$1" | tr '[:lower:]' '[:upper:]'
+}
+
+lowercase() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+get_command() {
+  local input cmd
+  input=$(lowercase "$1")
+  for cmd in "${COMMANDS[@]}"; do
+    if [[ "$cmd" == "$input" ]]; then
+      echo "$cmd"
+      return
+    fi
+  done
+}
+
+get_setting() {
+  local input="$1" key value
+  while IFS='=' read -r key value || [[ -n $key ]]; do
+    if [[ "$key" == "$input" ]]; then
+      echo "$value"
+      return
+    fi
+  done <"$SETTINGS_FILE"
+}
+
+check_dependencies() {
+  banner "CHECKING DEPENDENCIES"
+  local dep
+  for dep in "${DEPENDENCIES[@]}"; do
+    label "$dep"
+    if ! command -v "$dep" >/dev/null 2>&1; then
+      red "MISSING"
+      error "$dep not found in \$PATH"
+    fi
+    green "OK"
+  done
+}
+
+check_structure() {
+  banner "CHECKING FOLDER STRUCTURE"
+  local folder
+  for folder in "${FOLDERS[@]}"; do
+    label "$folder"
+    if [[ ! -d "$folder" ]]; then
+      red "MISSING"
+      error "$folder folder not found, run wiremockctl init"
+    fi
+    green "OK"
+  done
+
+  label "$SETTINGS_FILE"
+  if [[ ! -f "$SETTINGS_FILE" ]]; then
+    red "MISSING"
+    error "settings file $SETTINGS_FILE not found, run wiremockctl init"
+  fi
+  green "OK"
+}
+
+check_settings() {
+  banner "CHECKING SETTINGS"
+  local setting value
+  for setting in "${SETTINGS[@]}"; do
+    label "$setting"
+    value="$(get_setting "$setting")"
+    if [[ -z "$value" ]]; then
+      red "MISSING"
+      error "setting $setting must be defined in $SETTINGS_FILE"
+    fi
+    green "$value"
+  done
+}
+
+preflight_checks() {
+  check_dependencies
+  check_structure
+  check_settings
+}
+
+trap cleanup EXIT
+
+# setup user command if any
+COMMAND="$(get_command "${1:-}")"
+readonly COMMAND
+
+# print title and exit if command unknown
+if [[ -n $COMMAND ]]; then
+  banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
+else
+  banner ".:: WIREMOCKCTL ::."
+  error "Missing or unknown command. Available: ${COMMANDS[*]}"
+fi
+
+# process command
+if [[ "$COMMAND" != "init" ]]; then
+  preflight_checks
+fi

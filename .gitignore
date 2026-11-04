@@ -1,1 +1,8 @@
 .DS_Store
+.idea
+
+# wiremockctl
+mappings
+__files
+disabled
+wiremockctl.env

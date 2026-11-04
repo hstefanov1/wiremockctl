@@ -7,7 +7,7 @@ Every command except `init` runs these checks first. The first failure stops the
 ```mermaid
 flowchart TD
   start(["START (any command except init)"]) --> deps{"Dependencies found?"}
-  deps -- yes --> dirs{"Folder structure exists?"}
+  deps -- yes --> dirs{"Folders and settings file exist?"}
   deps -- no --> error1["Tell the user which one is missing"]
   error1 --> end1(["END: error"])
 
