@@ -41,12 +41,21 @@ banner() {
 title() {
   if [[ -t 1 ]]; then clear; fi
 
-  if [[ -n $COMMAND ]]; then
-    banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
-  else
+  if [[ ! -n $COMMAND ]]; then
     banner ".:: WIREMOCKCTL ::."
-    error "Missing or unknown command. Available: ${COMMANDS[*]}"
+    echo
+    echo "Commands:"
+    echo " init      Sets up the folder structure and settings file for a new mock server."
+    echo " start     Starts the WireMock server in a Podman container and loads all active mocks."
+    echo " stop      Stops the WireMock server and removes the Podman container."
+    echo " list      Shows all mocks, active and disabled."
+    echo " add       Guides you through creating a new mock and lets you review it in your editor."
+    echo " disable   Switches a mock off without deleting it."
+    echo " enable    Switches a disabled mock back on."
+    error "Missing or unknown command"
   fi
+
+  banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
 }
 
 cleanup() {
@@ -229,16 +238,14 @@ trap cleanup EXIT # banner, then list_folder for mappings, then for disabled
 COMMAND="$(get_command "${1:-}")"
 readonly COMMAND
 
-# run checks
+# run preflight checks
 title
 if [[ "$COMMAND" != "init" ]]; then
   preflight_checks
+  echo
+  echo "Initializing: $COMMAND "
+  sleep 1.5
 fi
-
-# improves ui
-echo
-echo -n "Initializing: $COMMAND "
-sleep 1.5
 
 # run command
 title
