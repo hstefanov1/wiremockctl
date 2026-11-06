@@ -2,8 +2,6 @@
 
 set -euo pipefail
 
-if [[ -t 1 ]]; then clear; fi
-
 readonly DEPENDENCIES=(podman curl jq)
 readonly SETTINGS_FILE="wiremockctl.env"
 readonly FOLDERS=(mappings __files disabled)
@@ -16,17 +14,32 @@ readonly SETTINGS_DEFAULT=(
   WIREMOCK_EDITOR=
 )
 
-red() { printf "\033[0;31m%s\033[0m\n" "$1"; }
-blue() { printf "\033[0;34m%s\033[0m\n" "$1"; }
-green() { printf "\033[0;32m%s\033[0m\n" "$1"; }
-yellow() { printf "\033[0;33m%s\033[0m\n" "$1"; }
-magenta() { printf "\033[0;35m%s\033[0m\n" "$1"; }
-default() { printf "\033[0m%s\033[0m\n" "$1"; }
+# colors only on a terminal, and when NO_COLOR is not set
+COLOR=0
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  COLOR=1
+fi
+readonly COLOR
+
+paint() {
+  if ((COLOR)); then
+    printf "\033[%sm%s\033[0m\n" "$1" "$2"
+  else
+    printf '%s\n' "$2"
+  fi
+}
+
+red() { paint "0;31" "$1"; }
+blue() { paint "0;34" "$1"; }
+green() { paint "0;32" "$1"; }
+yellow() { paint "0;33" "$1"; }
+magenta() { paint "0;35" "$1"; }
+default() { paint "0" "$1"; }
 
 label() {
-  local str="${1// /.}"
-  local dots="...................."
-  printf '%s%s: ' "$str" "${dots:${#str}}"
+  local width="${2:-20}"
+  printf "%-${width}s" "$1" | tr ' ' '.'
+  printf ': '
 }
 
 error() {
@@ -38,6 +51,26 @@ error() {
 banner() {
   echo
   blue "$1"
+}
+
+title() {
+  if [[ -t 1 ]]; then clear; fi
+
+  if [[ -z $COMMAND ]]; then
+    banner ".:: WIREMOCKCTL ::."
+    echo
+    echo "Commands:"
+    echo " init      Sets up the folder structure and settings file for a new mock server."
+    echo " start     Starts the WireMock server in a Podman container and loads all active mocks."
+    echo " stop      Stops the WireMock server and removes the Podman container."
+    echo " list      Shows all mocks, active and disabled."
+    echo " add       Guides you through creating a new mock and lets you review it in your editor."
+    echo " disable   Switches a mock off without deleting it."
+    echo " enable    Switches a disabled mock back on."
+    error "Missing or unknown command"
+  fi
+
+  banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
 }
 
 cleanup() {
@@ -174,27 +207,92 @@ cmd_init() {
   init_settings
 }
 
+describe_mock() {
+  local file="$1"
+  if ! jq -e . "$file" >/dev/null 2>&1; then
+    red "INVALID JSON"
+    return
+  fi
+
+  if jq -e 'type == "object" and has("mappings")' "$file" >/dev/null; then
+    red "MULTIPLE MAPPINGS"
+    return
+  fi
+
+  if ! jq -e '(.request | type) == "object" and (.response | type) == "object"' "$file" >/dev/null 2>&1; then
+    red "UNEXPECTED FORMAT"
+    return
+  fi
+
+  jq -r '
+    "\(.request.method // "-") " +
+    "\(.request.url // .request.urlPath // .request.urlPattern // .request.urlPathPattern // "-") -> " +
+    "\(.response.status // .response.fault // "-")"
+  ' "$file" 2>/dev/null || red "UNEXPECTED FORMAT"
+}
+
+list_folder() {
+  local folder="$1" width="$2" file count=0
+  for file in "$folder"/*.json; do
+    [[ -e "$file" ]] || continue
+    label "$(basename "$file")" "$width"
+    describe_mock "$file"
+    count=$((count + 1))
+  done
+  if ((count == 0)); then
+    echo "none"
+  fi
+}
+
+longest_name() {
+  local file name max=0
+  for file in "$@"; do
+    [[ -e "$file" ]] || continue
+    name="$(basename "$file")"
+    if ((${#name} > max)); then
+      max=${#name}
+    fi
+  done
+  echo "$max"
+}
+
+cmd_list() {
+  local width
+  width=$(($(longest_name mappings/*.json disabled/*.json) + 3))
+  if ((width < 20)); then width=20; fi
+
+  banner "ACTIVE MOCKS"
+  list_folder "mappings" "$width"
+
+  banner "DISABLED MOCKS"
+  list_folder "disabled" "$width"
+}
+
 trap cleanup EXIT
 
 # setup user command if any
 COMMAND="$(get_command "${1:-}")"
 readonly COMMAND
 
-# print title and exit if command unknown
-if [[ -n $COMMAND ]]; then
-  banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
-else
-  banner ".:: WIREMOCKCTL ::."
-  error "Missing or unknown command. Available: ${COMMANDS[*]}"
-fi
-
-# process command
+# run preflight checks
+title
 if [[ "$COMMAND" != "init" ]]; then
   preflight_checks
+  if [[ -t 1 ]]; then
+    echo
+    echo "Initializing: $COMMAND "
+    sleep 1.5
+    title
+  fi
 fi
+
+# run command
 case "$COMMAND" in
 "init")
   cmd_init
+  ;;
+"list")
+  cmd_list
   ;;
 *)
   error "$COMMAND is not implemented yet"

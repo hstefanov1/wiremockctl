@@ -1,6 +1,6 @@
 # wiremockctl
 
-> **Status:** design phase. Not implemented yet.
+> **Status:** in progress (implementation ongoing).
 
 wiremockctl runs a local WireMock server in a Podman container to mock the APIs your service depends on, without you needing to know how WireMock works. You create mocks by answering questions, switch them on or off with one command, and keep everything in your project folder.
 
@@ -55,6 +55,10 @@ Run `wiremockctl init` to create this structure.
 Two WireMock servers running at once need different ports.
 
 Settings are read from `wiremockctl.env` in the current folder.
+
+## Output
+
+Colors are shown only in a terminal. To turn them off, run with `NO_COLOR=1`, for example `NO_COLOR=1 wiremockctl list`.
 
 ## How mocks are loaded
 
