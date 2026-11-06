@@ -56,6 +56,10 @@ Two WireMock servers running at once need different ports.
 
 Settings are read from `wiremockctl.env` in the current folder.
 
+## Output
+
+Colors are shown only in a terminal. To turn them off, run with `NO_COLOR=1`, for example `NO_COLOR=1 wiremockctl list`.
+
 ## How mocks are loaded
 
 When the WireMock server starts, it loads the mocks one by one and checks them. If one is invalid, the server stops and tells you which file is wrong and why. The same applies when you turn a mock on (enable) or off (disable).
