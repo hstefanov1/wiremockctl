@@ -235,6 +235,11 @@ if [[ "$COMMAND" != "init" ]]; then
   preflight_checks
 fi
 
+# improves ui
+echo
+echo -n "Initializing: $COMMAND "
+sleep 1.5
+
 # run command
 title
 case "$COMMAND" in
