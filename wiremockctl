@@ -2,8 +2,6 @@
 
 set -euo pipefail
 
-if [[ -t 1 ]]; then clear; fi
-
 readonly DEPENDENCIES=(podman curl jq)
 readonly SETTINGS_FILE="wiremockctl.env"
 readonly FOLDERS=(mappings __files disabled)
@@ -38,6 +36,17 @@ error() {
 banner() {
   echo
   blue "$1"
+}
+
+title() {
+  if [[ -t 1 ]]; then clear; fi
+
+  if [[ -n $COMMAND ]]; then
+    banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
+  else
+    banner ".:: WIREMOCKCTL ::."
+    error "Missing or unknown command. Available: ${COMMANDS[*]}"
+  fi
 }
 
 cleanup() {
@@ -174,27 +183,66 @@ cmd_init() {
   init_settings
 }
 
-trap cleanup EXIT
+describe_mock() {
+  local file="$1"
+  if ! jq -e . "$file" >/dev/null 2>&1; then
+    red "INVALID JSON"
+    return
+  fi
+
+  if jq -e 'type == "object" and has("mappings")' "$file" >/dev/null; then
+    red "MULTIPLE MAPPINGS"
+    return
+  fi
+
+  jq -r '
+    "\(.request.method // "-") " +
+    "\(.request.url // .request.urlPath // .request.urlPattern // .request.urlPathPattern // "-") -> " +
+    "\(.response.status // .response.fault // "-")"
+  ' "$file"
+}
+
+list_folder() {
+  local folder="$1" file count=0
+  for file in "$folder"/*.json; do
+    [[ -e "$file" ]] || continue
+    label "$(basename "$file")"
+    describe_mock "$file"
+    count=$((count + 1))
+  done
+  if ((count == 0)); then
+    echo "none"
+  fi
+}
+
+cmd_list() {
+  banner "ACTIVE MOCKS"
+  list_folder "mappings"
+
+  banner "DISABLED MOCKS"
+  list_folder "disabled"
+}
+
+trap cleanup EXIT # banner, then list_folder for mappings, then for disabled
 
 # setup user command if any
 COMMAND="$(get_command "${1:-}")"
 readonly COMMAND
 
-# print title and exit if command unknown
-if [[ -n $COMMAND ]]; then
-  banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
-else
-  banner ".:: WIREMOCKCTL ::."
-  error "Missing or unknown command. Available: ${COMMANDS[*]}"
-fi
-
-# process command
+# run checks
+title
 if [[ "$COMMAND" != "init" ]]; then
   preflight_checks
 fi
+
+# run command
+title
 case "$COMMAND" in
 "init")
   cmd_init
+  ;;
+"list")
+  cmd_list
   ;;
 *)
   error "$COMMAND is not implemented yet"
