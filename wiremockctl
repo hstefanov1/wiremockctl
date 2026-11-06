@@ -9,6 +9,12 @@ readonly SETTINGS_FILE="wiremockctl.env"
 readonly FOLDERS=(mappings __files disabled)
 readonly COMMANDS=(init start stop list add disable enable)
 readonly SETTINGS=(WIREMOCK_IMAGE WIREMOCK_PORT WIREMOCK_TIMEOUT WIREMOCK_EDITOR)
+readonly SETTINGS_DEFAULT=(
+  WIREMOCK_IMAGE=docker.io/wiremock/wiremock
+  WIREMOCK_PORT=8080
+  WIREMOCK_TIMEOUT=30
+  WIREMOCK_EDITOR=
+)
 
 red() { printf "\033[0;31m%s\033[0m\n" "$1"; }
 blue() { printf "\033[0;34m%s\033[0m\n" "$1"; }
@@ -127,6 +133,47 @@ preflight_checks() {
   check_settings
 }
 
+init_folders() {
+  local folder
+  for folder in "${FOLDERS[@]}"; do
+    label "$folder"
+    if [[ ! -d "$folder" ]]; then
+      if mkdir "$folder"; then
+        green "CREATED"
+      else
+        red "FAILED"
+        error "failed to create folder $(pwd)/$folder"
+      fi
+    else
+      default "EXISTS"
+    fi
+  done
+}
+
+init_settings() {
+  label "$SETTINGS_FILE"
+  if [[ ! -f "$SETTINGS_FILE" ]]; then
+    if ! printf '%s\n' "${SETTINGS_DEFAULT[@]}" >"$SETTINGS_FILE"; then
+      red "FAILED"
+      error "failed to create settings file $(pwd)/$SETTINGS_FILE"
+    fi
+    green "CREATED"
+  else
+    default "EXISTS"
+  fi
+
+  if [[ -z "$(get_setting "WIREMOCK_EDITOR")" ]]; then
+    echo
+    echo "Next step: set WIREMOCK_EDITOR in $SETTINGS_FILE"
+  fi
+}
+
+cmd_init() {
+  banner "CREATING FOLDER STRUCTURE"
+  init_folders
+  init_settings
+}
+
 trap cleanup EXIT
 
 # setup user command if any
@@ -145,3 +192,11 @@ fi
 if [[ "$COMMAND" != "init" ]]; then
   preflight_checks
 fi
+case "$COMMAND" in
+"init")
+  cmd_init
+  ;;
+*)
+  error "$COMMAND is not implemented yet"
+  ;;
+esac
