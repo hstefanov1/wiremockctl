@@ -16,7 +16,7 @@ readonly SETTINGS_DEFAULT=(
 
 # colors only on a terminal, and when NO_COLOR is not set
 COLOR=0
-if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
   COLOR=1
 fi
 readonly COLOR
@@ -96,7 +96,7 @@ get_command() {
   local input cmd
   input=$(lowercase "$1")
   for cmd in "${COMMANDS[@]}"; do
-    if [[ "$cmd" == "$input" ]]; then
+    if [[ $cmd == "$input" ]]; then
       echo "$cmd"
       return
     fi
@@ -106,7 +106,7 @@ get_command() {
 get_setting() {
   local input="$1" key value
   while IFS='=' read -r key value || [[ -n $key ]]; do
-    if [[ "$key" == "$input" ]]; then
+    if [[ $key == "$input" ]]; then
       echo "$value"
       return
     fi
@@ -131,7 +131,7 @@ check_structure() {
   local folder
   for folder in "${FOLDERS[@]}"; do
     label "$folder"
-    if [[ ! -d "$folder" ]]; then
+    if [[ ! -d $folder ]]; then
       red "MISSING"
       error "$folder folder not found, run wiremockctl init"
     fi
@@ -139,7 +139,7 @@ check_structure() {
   done
 
   label "$SETTINGS_FILE"
-  if [[ ! -f "$SETTINGS_FILE" ]]; then
+  if [[ ! -f $SETTINGS_FILE ]]; then
     red "MISSING"
     error "settings file $SETTINGS_FILE not found, run wiremockctl init"
   fi
@@ -152,7 +152,7 @@ check_settings() {
   for setting in "${SETTINGS[@]}"; do
     label "$setting"
     value="$(get_setting "$setting")"
-    if [[ -z "$value" ]]; then
+    if [[ -z $value ]]; then
       red "MISSING"
       error "setting $setting must be defined in $SETTINGS_FILE"
     fi
@@ -170,7 +170,7 @@ init_folders() {
   local folder
   for folder in "${FOLDERS[@]}"; do
     label "$folder"
-    if [[ ! -d "$folder" ]]; then
+    if [[ ! -d $folder ]]; then
       if mkdir "$folder"; then
         green "CREATED"
       else
@@ -185,7 +185,7 @@ init_folders() {
 
 init_settings() {
   label "$SETTINGS_FILE"
-  if [[ ! -f "$SETTINGS_FILE" ]]; then
+  if [[ ! -f $SETTINGS_FILE ]]; then
     if ! printf '%s\n' "${SETTINGS_DEFAULT[@]}" >"$SETTINGS_FILE"; then
       red "FAILED"
       error "failed to create settings file $(pwd)/$SETTINGS_FILE"
@@ -234,7 +234,7 @@ describe_mock() {
 list_folder() {
   local folder="$1" width="$2" file count=0
   for file in "$folder"/*.json; do
-    [[ -e "$file" ]] || continue
+    [[ -e $file ]] || continue
     label "$(basename "$file")" "$width"
     describe_mock "$file"
     count=$((count + 1))
@@ -247,7 +247,7 @@ list_folder() {
 longest_name() {
   local file name max=0
   for file in "$@"; do
-    [[ -e "$file" ]] || continue
+    [[ -e $file ]] || continue
     name="$(basename "$file")"
     if ((${#name} > max)); then
       max=${#name}
@@ -276,7 +276,7 @@ readonly COMMAND
 
 # run preflight checks
 title
-if [[ "$COMMAND" != "init" ]]; then
+if [[ $COMMAND != "init" ]]; then
   preflight_checks
   if [[ -t 1 ]]; then
     echo
@@ -288,13 +288,13 @@ fi
 
 # run command
 case "$COMMAND" in
-"init")
-  cmd_init
-  ;;
-"list")
-  cmd_list
-  ;;
-*)
-  error "$COMMAND is not implemented yet"
-  ;;
+  "init")
+    cmd_init
+    ;;
+  "list")
+    cmd_list
+    ;;
+  *)
+    error "$COMMAND is not implemented yet"
+    ;;
 esac
