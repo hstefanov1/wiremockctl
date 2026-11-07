@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+
+if [[ -t 1 ]]; then clear; fi
+
+red() { printf "\033[0;31m%s\033[0m\n" "$1"; }
+blue() { printf "\033[0;34m%s\033[0m\n" "$1"; }
+green() { printf "\033[0;32m%s\033[0m\n" "$1"; }
+
+label() {
+	local str=${1// /.}
+	local dots="...................."
+	printf '%s%s: ' "$str" "${dots:${#str}}"
+}
+
+error() {
+	echo
+	red "ERROR: $1"
+	exit 1
+}
+
+banner() {
+	echo
+	blue "$1"
+}
+
+check_lib() {
+	if ! command -v "$1" >/dev/null 2>&1; then
+		error "$1 not found in \$PATH"
+	fi
+}
+
+check_repo() {
+	cd "$(git rev-parse --show-toplevel)" >/dev/null 2>&1 || error "Not inside git repo"
+}
+
+check_file() {
+	if [[ ! -f "$1" ]]; then
+		error "File not found \"$1\""
+	fi
+}
+
+format_file() {
+	label "shfmt"
+	if ! shfmt -d "$1" >/dev/null 2>&1; then
+		red "UNFORMATTED"
+		error "File needs to be formatted (run: shfmt -w $1)"
+	fi
+	green "OK"
+}
+
+lint_file() {
+	label "shellcheck"
+	if ! shellcheck -x "$1" >/dev/null 2>&1; then
+		red "ISSUES FOUND"
+		error "Lint issues found (run: shellcheck -x $1)"
+	fi
+	green "OK"
+}
+
+pre_commit() {
+	banner "FILE: $1"
+	check_file "$1"
+	format_file "$1"
+	lint_file "$1"
+	echo
+}
+
+banner ".:: RUNNING HOOKS PRE-COMMIT ::."
+check_repo
+check_lib "shfmt"
+check_lib "shellcheck"
+pre_commit "wiremockctl"
+green "::: COMPLETED HOOKS PRE-COMMIT :::"
