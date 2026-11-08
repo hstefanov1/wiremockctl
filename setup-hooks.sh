@@ -23,3 +23,4 @@ cd "hooks" >/dev/null 2>&1 || error "Dir not found \"hooks\""
 git config core.hooksPath hooks
 chmod +x pre-commit 2>/dev/null || error "Failed to set execute permissions"
 green "OK"
+echo

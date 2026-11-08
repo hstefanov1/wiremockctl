@@ -72,3 +72,4 @@ check_lib "shfmt"
 check_lib "shellcheck"
 pre_commit "wiremockctl"
 green "::: COMPLETED HOOKS PRE-COMMIT :::"
+echo
