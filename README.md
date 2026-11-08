@@ -76,15 +76,13 @@ When the WireMock server starts, it loads the mocks one by one and checks them. 
 
 To test on the WireMock version in use:
 
-- WireMock reports when it is ready.
-- WireMock accepts valid mocks and rejects invalid ones with a clear message.
-- WireMock may ignore misspelled fields, so some typos might not be caught (e.g., `statuss`).
-- Reloading clears all mocks and resets scenario state.
+- Reloading resets scenario state (not tested yet).
 
 ## Notes
 
 - Mocks loaded into the server live only in memory. The files on disk are the source of truth.
 - Scenario (stateful mock) state is reset on every reload.
+- Tested with WireMock 3.13.2.
 
 ## License
 
