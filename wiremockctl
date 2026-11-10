@@ -2,10 +2,11 @@
 
 set -euo pipefail
 
+readonly VERSION="0.1.0"
 readonly DEPENDENCIES=(podman curl jq)
 readonly SETTINGS_FILE="wiremockctl.env"
 readonly FOLDERS=(mappings __files disabled)
-readonly COMMANDS=(init start stop list add disable enable)
+readonly COMMANDS=(version init start stop list add disable enable)
 readonly SETTINGS=(WIREMOCK_IMAGE WIREMOCK_PORT WIREMOCK_TIMEOUT WIREMOCK_EDITOR)
 readonly SETTINGS_DEFAULT=(
   WIREMOCK_IMAGE=docker.io/wiremock/wiremock
@@ -67,6 +68,7 @@ title() {
     echo " add       Guides you through creating a new mock and lets you review it in your editor."
     echo " disable   Switches a mock off without deleting it."
     echo " enable    Switches a disabled mock back on."
+    echo " version   Shows the installed version."
     error "Missing or unknown command"
   fi
 
@@ -111,6 +113,11 @@ get_setting() {
       return
     fi
   done <"$SETTINGS_FILE"
+}
+
+cmd_version() {
+  echo
+  echo "wiremockctl $VERSION"
 }
 
 check_dependencies() {
@@ -276,7 +283,7 @@ readonly COMMAND
 
 # run preflight checks
 title
-if [[ $COMMAND != "init" ]]; then
+if [[ $COMMAND != "init" && $COMMAND != "version" ]]; then
   preflight_checks
   if [[ -t 1 ]]; then
     echo
@@ -288,6 +295,9 @@ fi
 
 # run command
 case "$COMMAND" in
+  "version")
+    cmd_version
+    ;;
   "init")
     cmd_init
     ;;

@@ -42,6 +42,7 @@ Run `wiremockctl init` to create this structure.
 | `wiremockctl add`            | Guides you through creating a new mock and lets you review it in your editor. | [View](docs/command-add.md)            |
 | `wiremockctl disable <file>` | Switches a mock off without deleting it.                                      | [View](docs/command-disable-enable.md) |
 | `wiremockctl enable <file>`  | Switches a disabled mock back on.                                             | [View](docs/command-disable-enable.md) |
+| `wiremockctl version`        | Shows the installed version.                                                  | -                                      |
 
 ## Configuration
 
