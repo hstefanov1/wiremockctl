@@ -26,7 +26,7 @@ paint() {
   if ((COLOR)); then
     printf "\033[%sm%s\033[0m\n" "$1" "$2"
   else
-    printf '%s\n' "$2"
+    printf "%s\n" "$2"
   fi
 }
 
@@ -39,13 +39,14 @@ default() { paint "0" "$1"; }
 
 label() {
   local width="${2:-20}"
-  printf "%-${width}s" "$1" | tr ' ' '.'
-  printf ': '
+  printf "%-${width}s" "$1" | tr " " "."
+  printf ": "
 }
 
 error() {
   echo
   red "ERROR: ${1:-}" >&2
+  log_trace
   exit 1
 }
 
@@ -84,14 +85,36 @@ cleanup() {
     red "::: BASH ABORTED :::"
   fi
   echo
+  log_end "$code"
 }
 
 uppercase() {
-  printf '%s' "$1" | tr '[:lower:]' '[:upper:]'
+  printf "%s" "$1" | tr "[:lower:]" "[:upper:]"
 }
 
 lowercase() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+  printf "%s" "$1" | tr "[:upper:]" "[:lower:]"
+}
+
+log_run() {
+  printf "\n=== %s: run command %s ===\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$COMMAND" >>wiremockctl.log
+}
+
+log_trace() {
+  local call_stack=("${FUNCNAME[@]}")
+  local call_path=""
+  local idx
+
+  for ((idx = ${#call_stack[@]} - 1; idx > 0; idx--)); do
+    [[ -n "$call_path" ]] && call_path+=" -> "
+    call_path+="${call_stack[idx]}"
+  done
+
+  echo "CallStack: $call_path" >>wiremockctl.log
+}
+
+log_end() {
+  printf "=== %s: end command %s (exit code %s) ===\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$COMMAND" "$1" >>wiremockctl.log || true
 }
 
 get_command() {
@@ -107,7 +130,7 @@ get_command() {
 
 get_setting() {
   local input="$1" key value
-  while IFS='=' read -r key value || [[ -n $key ]]; do
+  while IFS="=" read -r key value || [[ -n $key ]]; do
     if [[ $key == "$input" ]]; then
       echo "$value"
       return
@@ -193,7 +216,7 @@ init_folders() {
 init_settings() {
   label "$SETTINGS_FILE"
   if [[ ! -f $SETTINGS_FILE ]]; then
-    if ! printf '%s\n' "${SETTINGS_DEFAULT[@]}" >"$SETTINGS_FILE"; then
+    if ! printf "%s\n" "${SETTINGS_DEFAULT[@]}" >"$SETTINGS_FILE"; then
       red "FAILED"
       error "failed to create settings file $(pwd)/$SETTINGS_FILE"
     fi
@@ -212,6 +235,25 @@ cmd_init() {
   banner "CREATING FOLDER STRUCTURE"
   init_folders
   init_settings
+}
+
+longest_name() {
+  local file name max=0
+  for file in "$@"; do
+    [[ -e $file ]] || continue
+    name="$(basename "$file")"
+    if ((${#name} > max)); then
+      max=${#name}
+    fi
+  done
+  echo "$max"
+}
+
+get_width() {
+  local width
+  width=$(($(longest_name mappings/*.json disabled/*.json) + 3))
+  if ((width < 20)); then width=20; fi
+  echo "$width"
 }
 
 describe_mock() {
@@ -247,32 +289,142 @@ list_folder() {
     count=$((count + 1))
   done
   if ((count == 0)); then
-    echo "none"
+    echo "NONE"
   fi
-}
-
-longest_name() {
-  local file name max=0
-  for file in "$@"; do
-    [[ -e $file ]] || continue
-    name="$(basename "$file")"
-    if ((${#name} > max)); then
-      max=${#name}
-    fi
-  done
-  echo "$max"
 }
 
 cmd_list() {
   local width
-  width=$(($(longest_name mappings/*.json disabled/*.json) + 3))
-  if ((width < 20)); then width=20; fi
+  width="$(get_width)"
 
   banner "ACTIVE MOCKS"
   list_folder "mappings" "$width"
 
   banner "DISABLED MOCKS"
   list_folder "disabled" "$width"
+}
+
+server_is_up() {
+  local port code
+  port="$(get_setting WIREMOCK_PORT)"
+  code="$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost:${port}/__admin/health" || true)"
+  [[ $code == "200" ]]
+}
+
+abort_if_server_running() {
+  label "server"
+  if server_is_up; then
+    red "RUNNING"
+    error "server already running on port $(get_setting WIREMOCK_PORT)"
+  fi
+  green "NOT RUNNING"
+}
+
+container_name() {
+  local folder
+  folder="$(basename "$PWD")"
+  printf "wiremockctl-%s" "$(printf "%s" "$folder" | tr -c "A-Za-z0-9_.-" "-")"
+}
+
+remove_container() {
+  local name="$1"
+  podman rm -f "$name" >>wiremockctl.log 2>&1 || true
+}
+
+run_container() {
+  local name="$1" port image
+  port="$(get_setting WIREMOCK_PORT)"
+  image="$(get_setting WIREMOCK_IMAGE)"
+
+  label "container_stale"
+  if podman container exists "$name"; then
+    remove_container "$name"
+    yellow "REMOVED"
+  else
+    green "NONE"
+  fi
+
+  label "container_fresh"
+  if ! podman run -d --name "$name" \
+    -p "$port" \
+    -v "$PWD/__files:/home/wiremock/__files" \
+    "$image" >>wiremockctl.log 2>&1; then
+    red "FAILED"
+    error "failed to start container $name, see wiremockctl.log"
+  fi
+  green "STARTED"
+}
+
+wait_until_ready() {
+  local name="$1" limit waited=0
+  limit="$(get_setting WIREMOCK_TIMEOUT)"
+
+  label "readiness"
+  until server_is_up; do
+    if ((waited >= limit)); then
+      red "TIMEOUT"
+      podman logs "$name" >>wiremockctl.log 2>&1 || true
+      remove_container "$name"
+      error "server not ready after ${limit}s, see wiremockctl.log"
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  green "READY"
+}
+
+load_mock() {
+  local container="$1" file="$2" width="$3" port response code body message
+  port="$(get_setting WIREMOCK_PORT)"
+
+  label "$(basename "$file")" "$width"
+  response="$(curl -s -w "\n%{http_code}" -X POST \
+    "http://localhost:${port}/__admin/mappings" \
+    -H "Content-Type: application/json" \
+    --data-binary @"$file" || true)"
+  code="${response##*$'\n'}"
+  body="${response%$'\n'*}"
+
+  if [[ $code == "201" ]]; then
+    green "OK"
+    return
+  fi
+
+  red "REJECTED"
+  message="$(printf "%s" "$body" | jq -r '
+    .errors[0]
+    | (if .source.pointer then .source.pointer + ": " else "" end)
+      + (.detail | split("\n")[0])' 2>>wiremockctl.log || true)"
+  remove_container "$container"
+  error "$(basename "$file"): ${message:-HTTP $code}"
+}
+
+load_mocks() {
+  local container="$1" count=0 file width
+  width="$(get_width)"
+
+  for file in mappings/*.json; do
+    [[ -e $file ]] || continue
+    load_mock "$container" "$file" "$width"
+    count=$((count + 1))
+  done
+
+  if ((count == 0)); then
+    echo "NONE"
+  fi
+}
+
+cmd_start() {
+  local container
+  container="$(container_name)"
+
+  banner "STARTING SERVER"
+  abort_if_server_running
+  run_container "$container"
+  wait_until_ready "$container"
+
+  banner "LOADING MOCKS"
+  load_mocks "$container"
 }
 
 trap cleanup EXIT
@@ -282,12 +434,13 @@ COMMAND="$(get_command "${1:-}")"
 readonly COMMAND
 
 # run preflight checks
+log_run
 title
 if [[ $COMMAND != "init" && $COMMAND != "version" ]]; then
   preflight_checks
   if [[ -t 1 ]]; then
     echo
-    echo "Initializing: $COMMAND "
+    echo -n "Initializing: $COMMAND "
     sleep 1.5
     title
   fi
@@ -303,6 +456,9 @@ case "$COMMAND" in
     ;;
   "list")
     cmd_list
+    ;;
+  "start")
+    cmd_start
     ;;
   *)
     error "$COMMAND is not implemented yet"
