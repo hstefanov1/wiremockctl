@@ -2,8 +2,10 @@
 
 set -euo pipefail
 
+readonly INPUT_ARG="${1:-}"
 readonly VERSION="0.1.0"
 readonly DEPENDENCIES=(podman curl jq)
+readonly LOG_FILE="wiremockctl.log"
 readonly SETTINGS_FILE="wiremockctl.env"
 readonly FOLDERS=(mappings __files disabled)
 readonly COMMANDS=(version init start stop list add disable enable)
@@ -15,6 +17,9 @@ readonly SETTINGS_DEFAULT=(
   WIREMOCK_EDITOR=
 )
 
+# prevent git bash (msys) from automatically converting paths passed to podman
+export MSYS_NO_PATHCONV=1
+
 # colors only on a terminal, and when NO_COLOR is not set
 COLOR=0
 if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
@@ -22,11 +27,46 @@ if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
 fi
 readonly COLOR
 
+log() {
+  printf "%s %s: %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$1" "$2" >>"$LOG_FILE"
+}
+
+log_info() {
+  log "INFO" "$1"
+}
+
+log_warn() {
+  log "WARN" "$1"
+}
+
+log_error() {
+  log "ERROR" "$1"
+}
+
+log_run() {
+  printf "\n====== Run [%s] ======\n" "$INPUT_ARG" >>"$LOG_FILE"
+}
+
+log_end() {
+  printf "====== End [%s] ======\n" "$INPUT_ARG" >>"$LOG_FILE"
+}
+
+log_stack() {
+  local stack=("${FUNCNAME[@]}")
+  local path=""
+  local idx
+  for ((idx = ${#stack[@]} - 1; idx > 0; idx--)); do
+    [[ -n "$path" ]] && path+=" -> "
+    path+="${stack[idx]}"
+  done
+  log_error "Call stack [$path]"
+}
+
 paint() {
   if ((COLOR)); then
     printf "\033[%sm%s\033[0m\n" "$1" "$2"
   else
-    printf '%s\n' "$2"
+    printf "%s\n" "$2"
   fi
 }
 
@@ -39,13 +79,16 @@ default() { paint "0" "$1"; }
 
 label() {
   local width="${2:-20}"
-  printf "%-${width}s" "$1" | tr ' ' '.'
-  printf ': '
+  printf "%-${width}s" "$1" | tr " " "."
+  printf ": "
 }
 
 error() {
+  local message="$1"
   echo
-  red "ERROR: ${1:-}" >&2
+  red "ERROR: $message" >&2
+  log_error "$message"
+  log_stack
   exit 1
 }
 
@@ -54,7 +97,45 @@ banner() {
   blue "$1"
 }
 
-title() {
+cleanup() {
+  local code=$?
+
+  echo
+  if ((code == 0)); then
+    log_info "Exit code $code"
+    green "::: BASH COMPLETED :::"
+  else
+    if ((code > 1)); then
+      log_error "Failed bash command '$BASH_COMMAND'"
+    fi
+    log_error "Exit code $code"
+    red "::: BASH ABORTED :::"
+  fi
+  echo
+
+  log_end
+}
+
+uppercase() {
+  printf "%s" "$1" | tr "[:lower:]" "[:upper:]"
+}
+
+lowercase() {
+  printf "%s" "$1" | tr "[:upper:]" "[:lower:]"
+}
+
+get_cmd() {
+  local cmd input
+  input=$(lowercase "$INPUT_ARG")
+  for cmd in "${COMMANDS[@]}"; do
+    if [[ $cmd == "$input" ]]; then
+      echo "$cmd"
+      return
+    fi
+  done
+}
+
+require_cmd() {
   if [[ -t 1 ]]; then clear; fi
 
   if [[ -z $COMMAND ]]; then
@@ -69,45 +150,19 @@ title() {
     echo " disable   Switches a mock off without deleting it."
     echo " enable    Switches a disabled mock back on."
     echo " version   Shows the installed version."
-    error "Missing or unknown command"
+    if [[ -n "$INPUT_ARG" ]]; then
+      error "Unknown command '$INPUT_ARG'"
+    else
+      error "Missing command"
+    fi
   fi
 
   banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
 }
 
-cleanup() {
-  local code=$?
-  echo
-  if ((code == 0)); then
-    green "::: BASH COMPLETED :::"
-  else
-    red "::: BASH ABORTED :::"
-  fi
-  echo
-}
-
-uppercase() {
-  printf '%s' "$1" | tr '[:lower:]' '[:upper:]'
-}
-
-lowercase() {
-  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
-}
-
-get_command() {
-  local input cmd
-  input=$(lowercase "$1")
-  for cmd in "${COMMANDS[@]}"; do
-    if [[ $cmd == "$input" ]]; then
-      echo "$cmd"
-      return
-    fi
-  done
-}
-
 get_setting() {
   local input="$1" key value
-  while IFS='=' read -r key value || [[ -n $key ]]; do
+  while IFS="=" read -r key value || [[ -n $key ]]; do
     if [[ $key == "$input" ]]; then
       echo "$value"
       return
@@ -127,7 +182,7 @@ check_dependencies() {
     label "$dep"
     if ! command -v "$dep" >/dev/null 2>&1; then
       red "MISSING"
-      error "$dep not found in \$PATH"
+      error "Command '$dep' not found in \$PATH"
     fi
     green "OK"
   done
@@ -140,7 +195,7 @@ check_structure() {
     label "$folder"
     if [[ ! -d $folder ]]; then
       red "MISSING"
-      error "$folder folder not found, run wiremockctl init"
+      error "Folder '$folder' not found, run wiremockctl init"
     fi
     green "OK"
   done
@@ -148,7 +203,7 @@ check_structure() {
   label "$SETTINGS_FILE"
   if [[ ! -f $SETTINGS_FILE ]]; then
     red "MISSING"
-    error "settings file $SETTINGS_FILE not found, run wiremockctl init"
+    error "File '$SETTINGS_FILE' not found, run wiremockctl init"
   fi
   green "OK"
 }
@@ -161,16 +216,18 @@ check_settings() {
     value="$(get_setting "$setting")"
     if [[ -z $value ]]; then
       red "MISSING"
-      error "setting $setting must be defined in $SETTINGS_FILE"
+      error "Configuration '$setting' missing in settings file '$SETTINGS_FILE'"
     fi
     green "$value"
   done
 }
 
 preflight_checks() {
+  log_info "Preflight checks"
   check_dependencies
   check_structure
   check_settings
+  log_info "Preflight checks passed"
 }
 
 init_folders() {
@@ -182,7 +239,7 @@ init_folders() {
         green "CREATED"
       else
         red "FAILED"
-        error "failed to create folder $(pwd)/$folder"
+        error "Failed to create folder '$(pwd)/$folder'"
       fi
     else
       default "EXISTS"
@@ -193,62 +250,28 @@ init_folders() {
 init_settings() {
   label "$SETTINGS_FILE"
   if [[ ! -f $SETTINGS_FILE ]]; then
-    if ! printf '%s\n' "${SETTINGS_DEFAULT[@]}" >"$SETTINGS_FILE"; then
+    if ! printf "%s\n" "${SETTINGS_DEFAULT[@]}" >"$SETTINGS_FILE"; then
       red "FAILED"
-      error "failed to create settings file $(pwd)/$SETTINGS_FILE"
+      error "Failed to create settings file '$(pwd)/$SETTINGS_FILE'"
     fi
     green "CREATED"
   else
+    log_info "Settings file already exists (configs will be checked later)"
     default "EXISTS"
   fi
 
   if [[ -z "$(get_setting "WIREMOCK_EDITOR")" ]]; then
+    log_warn "Configuration WIREMOCK_EDITOR is missing. Please set it."
     echo
-    echo "Next step: set WIREMOCK_EDITOR in $SETTINGS_FILE"
+    yellow "Next step: set your preferred WIREMOCK_EDITOR in $SETTINGS_FILE"
   fi
 }
 
 cmd_init() {
   banner "CREATING FOLDER STRUCTURE"
+  log_info "Working directory is '$(pwd)'"
   init_folders
   init_settings
-}
-
-describe_mock() {
-  local file="$1"
-  if ! jq -e . "$file" >/dev/null 2>&1; then
-    red "INVALID JSON"
-    return
-  fi
-
-  if jq -e 'type == "object" and has("mappings")' "$file" >/dev/null; then
-    red "MULTIPLE MAPPINGS"
-    return
-  fi
-
-  if ! jq -e '(.request | type) == "object" and (.response | type) == "object"' "$file" >/dev/null 2>&1; then
-    red "UNEXPECTED FORMAT"
-    return
-  fi
-
-  jq -r '
-    "\(.request.method // "-") " +
-    "\(.request.url // .request.urlPath // .request.urlPattern // .request.urlPathPattern // "-") -> " +
-    "\(.response.status // .response.fault // "-")"
-  ' "$file" 2>/dev/null || red "UNEXPECTED FORMAT"
-}
-
-list_folder() {
-  local folder="$1" width="$2" file count=0
-  for file in "$folder"/*.json; do
-    [[ -e $file ]] || continue
-    label "$(basename "$file")" "$width"
-    describe_mock "$file"
-    count=$((count + 1))
-  done
-  if ((count == 0)); then
-    echo "none"
-  fi
 }
 
 longest_name() {
@@ -263,33 +286,243 @@ longest_name() {
   echo "$max"
 }
 
-cmd_list() {
+get_width() {
   local width
   width=$(($(longest_name mappings/*.json disabled/*.json) + 3))
   if ((width < 20)); then width=20; fi
+  echo "$width"
+}
+
+describe_mock() {
+  local file="$1" output
+
+  # ensure the file contains valid json
+  output=$(jq empty "$file" 2>&1) || {
+    log_error "File '$file' is not a valid json; $output"
+    red "INVALID JSON"
+    return
+  }
+
+  # check whether the file contains a mappings array, as only single-mapping files are supported
+  if jq -e 'type == "object" and has("mappings")' "$file" >/dev/null; then
+    log_error "File '$file' contains multiple mappings, but only single-mapping is supported"
+    red "MULTIPLE MAPPINGS"
+    return
+  fi
+
+  # validate that the mapping contains valid request and response objects
+  if ! jq -e '(.request | type) == "object" and (.response | type) == "object"' "$file" >/dev/null 2>&1; then
+    log_error "File '$file' contains unexpected format, see wiremockctl ln.$((LINENO))"
+    red "UNEXPECTED FORMAT"
+    return
+  fi
+
+  # extracts and prints the mapping fields
+  jq -r '
+    "\(.request.method // "-") " +
+    "\(.request.url // .request.urlPath // .request.urlPattern // .request.urlPathPattern // "-") -> " +
+    "\(.response.status // .response.fault // "-")"
+  ' "$file" 2>/dev/null || {
+    log_error "File '$file' contains unexpected format, see wiremockctl ln.$((LINENO))"
+    red "UNEXPECTED FORMAT"
+  }
+}
+
+list_folder() {
+  local folder="$1" width="$2" file count=0
+  for file in "$folder"/*.json; do
+    [[ -e $file ]] || continue
+    label "$(basename "$file")" "$width"
+    describe_mock "$file"
+    count=$((count + 1))
+  done
+  if ((count == 0)); then
+    echo "NONE"
+  fi
+}
+
+cmd_list() {
+  local width
+  width="$(get_width)"
+  log_info "Working directory is '$(pwd)'"
 
   banner "ACTIVE MOCKS"
+  log_info "Listing folder 'mappings'"
   list_folder "mappings" "$width"
 
   banner "DISABLED MOCKS"
+  log_info "Listing folder 'disabled'"
   list_folder "disabled" "$width"
+}
+
+server_is_up() {
+  local port code
+  port="$(get_setting WIREMOCK_PORT)"
+  code="$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost:${port}/__admin/health" || true)"
+  [[ $code == "200" ]]
+}
+
+abort_if_server_running() {
+  label "Server"
+  if server_is_up; then
+    red "ALREADY RUNNING"
+    error "Server already running on port $(get_setting WIREMOCK_PORT)"
+  fi
+  green "NOT RUNNING"
+}
+
+container_name() {
+  local folder
+  folder="$(basename "$PWD")"
+  printf "wiremockctl-%s" "$(printf "%s" "$folder" | tr -c "A-Za-z0-9_.-" "-")"
+}
+
+remove_container() {
+  local name="$1"
+  podman rm -f "$name" >/dev/null 2>&1 || true
+}
+
+run_container() {
+  local name="$1"
+
+  label "Container"
+  if podman container exists "$name"; then
+    log_info "Removing container '$name'"
+    remove_container "$name"
+  fi
+
+  local port image volume output
+  port="$(get_setting WIREMOCK_PORT)"
+  image="$(get_setting WIREMOCK_IMAGE)"
+  volume="$PWD/__files:/home/wiremock/__files"
+  log_info "Container configurations:"
+  log_info "Port=$port"
+  log_info "Name='$name'"
+  log_info "Image='$image'"
+  log_info "Volume='$volume'"
+
+  log_info "Starting container"
+  if ! output=$(podman run -d \
+    --name "$name" \
+    -p "$port:8080" \
+    -v "$volume" \
+    "$image" --disable-banner 2>&1); then
+    red "FAILED STARTING"
+    log_error "Container $output"
+    error "Failed to start container '$name', see $LOG_FILE"
+  fi
+  log_info "Container started: $output"
+  green "STARTED"
+}
+
+wait_until_ready() {
+  local name="$1" limit waited=0
+  limit="$(get_setting WIREMOCK_TIMEOUT)"
+
+  label "Readiness"
+  log_info "Waiting for server to become ready"
+  until server_is_up; do
+    if ((waited >= limit)); then
+      red "TIMEOUT"
+      log_error "Server readiness timeout. Container logs:"
+      podman logs "$name" >>"$LOG_FILE" 2>&1 || true
+      remove_container "$name"
+      error "Server did not become ready within ${limit}s, see $LOG_FILE"
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  green "HEALTHY"
+  log_info "Wiremock server is ready"
+}
+
+load_mock() {
+  local container="$1" file="$2" width="$3"
+  local port response code body message
+
+  label "$(basename "$file")" "$width"
+
+  port="$(get_setting WIREMOCK_PORT)"
+  response="$(curl -s -w "\n%{http_code}" -X POST \
+    "http://localhost:${port}/__admin/mappings" \
+    -H "Content-Type: application/json" \
+    --data-binary @"$file" || true)"
+  code="${response##*$'\n'}"
+  body="${response%$'\n'*}"
+
+  if [[ $code == "201" ]]; then
+    green "OK"
+    return
+  fi
+
+  # something went wrong
+  # extract errror message
+  message="$(printf "%s" "$body" | jq -r '
+    .errors[0]
+    | (if .source.pointer then .source.pointer + ": " else "" end)
+      + (.detail | split("\n")[0])' || true)"
+  log_error "$message"
+  remove_container "$container"
+
+  red "REJECTED"
+  error "File '$(basename "$file")' was rejected, see $LOG_FILE"
+}
+
+load_mocks() {
+  local count container width file
+  count=0
+  container="$1"
+  width="$(get_width)"
+
+  log_info "Loading mocks"
+  for file in mappings/*.json; do
+    [[ -e $file ]] || continue
+    load_mock "$container" "$file" "$width"
+    count=$((count + 1))
+  done
+  log_info "Successfully loaded $count mocks"
+
+  if ((count == 0)); then
+    echo "NONE"
+  else
+    echo
+    magenta "WireMock: http://localhost:$(get_setting WIREMOCK_PORT)/__admin/mappings"
+  fi
+}
+
+cmd_start() {
+  local container
+  container="$(container_name)"
+  log_info "Working directory is '$(pwd)'"
+
+  banner "STARTING SERVER"
+  abort_if_server_running
+  run_container "$container"
+  wait_until_ready "$container"
+
+  banner "LOADING MOCKS"
+  load_mocks "$container"
 }
 
 trap cleanup EXIT
 
+log_run
+
 # setup user command if any
-COMMAND="$(get_command "${1:-}")"
+COMMAND="$(get_cmd)"
 readonly COMMAND
 
+# start
+require_cmd
+
 # run preflight checks
-title
 if [[ $COMMAND != "init" && $COMMAND != "version" ]]; then
   preflight_checks
   if [[ -t 1 ]]; then
     echo
-    echo "Initializing: $COMMAND "
-    sleep 1.5
-    title
+    echo -n "Initializing: $COMMAND "
+    sleep 1
+    require_cmd
   fi
 fi
 
@@ -304,7 +537,10 @@ case "$COMMAND" in
   "list")
     cmd_list
     ;;
+  "start")
+    cmd_start
+    ;;
   *)
-    error "$COMMAND is not implemented yet"
+    error "Command '$COMMAND' not implemented"
     ;;
 esac

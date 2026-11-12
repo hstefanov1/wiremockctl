@@ -6,3 +6,4 @@ mappings
 __files
 disabled
 wiremockctl.env
+wiremockctl.log
