@@ -504,6 +504,41 @@ cmd_start() {
   load_mocks "$container"
 }
 
+stop_container() {
+  local name="$1" output
+
+  label "Container"
+  if ! podman container exists "$name"; then
+    log_info "Container '$name' not found, nothing to stop"
+    default "NOT FOUND"
+    return
+  fi
+
+  log_info "Stopping container '$name'"
+  if ! output=$(podman stop "$name" 2>&1); then
+    red "FAILED STOPPING"
+    log_error "Container $output"
+    error "Failed to stop container '$name', see $LOG_FILE"
+  fi
+
+  log_info "Removing container '$name'"
+  if ! output=$(podman rm "$name" 2>&1); then
+    red "FAILED REMOVING"
+    log_error "Container $output"
+    error "Failed to remove container '$name', see $LOG_FILE"
+  fi
+  green "STOPPED"
+}
+
+cmd_stop() {
+  local container
+  container="$(container_name)"
+  log_info "Working directory is '$(pwd)'"
+
+  banner "STOPPING SERVER"
+  stop_container "$container"
+}
+
 trap cleanup EXIT
 
 log_run
@@ -539,6 +574,9 @@ case "$COMMAND" in
     ;;
   "start")
     cmd_start
+    ;;
+  "stop")
+    cmd_stop
     ;;
   *)
     error "Command '$COMMAND' not implemented"
