@@ -28,7 +28,7 @@ fi
 readonly COLOR
 
 log() {
-  printf "%s %s: %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$1" "$2" >>"$LOG_FILE"
+  { printf "%s %s: %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$1" "$2" >>"$LOG_FILE"; } 2>/dev/null || true
 }
 
 log_info() {
@@ -44,11 +44,11 @@ log_error() {
 }
 
 log_run() {
-  printf "\n====== Run [%s] ======\n" "$INPUT_ARG" >>"$LOG_FILE"
+  { printf "====== Run [%s] ======\n" "$INPUT_ARG" >>"$LOG_FILE"; } 2>/dev/null || true
 }
 
 log_end() {
-  printf "====== End [%s] ======\n" "$INPUT_ARG" >>"$LOG_FILE"
+  { printf "====== End [%s] ======\n\n" "$INPUT_ARG" >>"$LOG_FILE"; } 2>/dev/null || true
 }
 
 log_stack() {
