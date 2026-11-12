@@ -125,7 +125,7 @@ lowercase() {
 }
 
 get_cmd() {
-  local cmd
+  local cmd input
   input=$(lowercase "$INPUT_ARG")
   for cmd in "${COMMANDS[@]}"; do
     if [[ $cmd == "$input" ]]; then
@@ -150,7 +150,11 @@ require_cmd() {
     echo " disable   Switches a mock off without deleting it."
     echo " enable    Switches a disabled mock back on."
     echo " version   Shows the installed version."
-    error "Unknown command '$INPUT_ARG'"
+    if [[ -n "$INPUT_ARG" ]]; then
+      error "Unknown command '$INPUT_ARG'"
+    else
+      error "Missing command"
+    fi
   fi
 
   banner ".:: WIREMOCKCTL · $(uppercase "$COMMAND") ::."
@@ -290,11 +294,11 @@ get_width() {
 }
 
 describe_mock() {
-  local file="$1" error
+  local file="$1" output
 
   # ensure the file contains valid json
-  error=$(jq empty "$file" 2>&1) || {
-    log_error "File '$file' is not a valid json; $error"
+  output=$(jq empty "$file" 2>&1) || {
+    log_error "File '$file' is not a valid json; $output"
     red "INVALID JSON"
     return
   }
