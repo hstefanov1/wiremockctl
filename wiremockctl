@@ -387,22 +387,27 @@ run_container() {
     remove_container "$name"
   fi
 
-  local port image volume
+  local port image volume output
   port="$(get_setting WIREMOCK_PORT)"
   image="$(get_setting WIREMOCK_IMAGE)"
   volume="$PWD/__files:/home/wiremock/__files"
   log_info "Container configurations:"
-  log_info " Port=$port"
-  log_info " Name='$name'"
-  log_info " Image='$image'"
-  log_info " Volume='$volume'"
+  log_info "Port=$port"
+  log_info "Name='$name'"
+  log_info "Image='$image'"
+  log_info "Volume='$volume'"
 
   log_info "Starting container"
-  if ! podman run -d --name "$name" -p "$port:8080" -v "$volume" "$image" >>"$LOG_FILE" 2>&1; then
+  if ! output=$(podman run -d \
+    --name "$name" \
+    -p "$port:8080" \
+    -v "$volume" \
+    "$image" --disable-banner 2>&1); then
     red "FAILED STARTING"
+    log_error "Container $output"
     error "Failed to start container '$name', see $LOG_FILE"
   fi
-  log_info "Container started"
+  log_info "Container started: $output"
   green "STARTED"
 }
 
@@ -423,7 +428,7 @@ wait_until_ready() {
     sleep 1
     waited=$((waited + 1))
   done
-  green "READY"
+  green "HEALTHY"
   log_info "Wiremock server is ready"
 }
 
@@ -445,16 +450,17 @@ load_mock() {
     green "OK"
     return
   fi
-  red "REJECTED"
 
+  # something went wrong
   # extract errror message
   message="$(printf "%s" "$body" | jq -r '
     .errors[0]
     | (if .source.pointer then .source.pointer + ": " else "" end)
       + (.detail | split("\n")[0])' || true)"
-
   log_error "$message"
   remove_container "$container"
+
+  red "REJECTED"
   error "File '$(basename "$file")' was rejected, see $LOG_FILE"
 }
 
