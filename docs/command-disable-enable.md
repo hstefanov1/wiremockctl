@@ -1,24 +1,32 @@
 # Command: disable / enable
 
-## disable \<file>
+## disable \<prefix_file>
 
-Switches a mock off without deleting it.
+Switches off every mock whose file name starts with the prefix, without deleting them.
 
-## enable \<file>
+## enable \<prefix_file>
 
-Switches a disabled mock back on.
+Switches back on every disabled mock whose file name starts with the prefix.
 
 ## Workflow Overview
 
 ```mermaid
 flowchart TD
-  start(["START (disable or enable)"]) --> file_exists{"File exists?"}
-  file_exists -- yes --> move_file["Move the file to the other folder"]
-  file_exists -- no --> error1["Tell the user the file was not found"]
+start(["START (disable or enable)"]) --> name_ok{"Prefix has at least 3 characters?"}
+  name_ok -- yes --> file_exists{"Any file starts with the prefix?"}
+  name_ok -- no --> error1["Tell the user the prefix is too short"]
   error1 --> end1(["END: error"])
 
+  file_exists -- yes --> conflict{"Any match already in the other folder?"}
+  file_exists -- no --> error2["Tell the user no file matches"]
+  error2 --> end2(["END: error"])
+
+  conflict -- no --> move_file["Move every matching file to the other folder"]
+  conflict -- yes --> error3["Show the files in conflict"]
+  error3 --> end3(["END: error"])
+
   move_file --> server_up{"Server running?"}
-  server_up -- no --> end2(["END: success"])
+  server_up -- no --> end4(["END: success"])
   server_up -- yes --> reset_mocks["Clear the mocks on the server"]
 
   reset_mocks --> load["Take the next mock, in alphabetical order"]
@@ -26,12 +34,15 @@ flowchart TD
   load --> process["Load it"]
   process --> success{"Accepted?"}
   success -- yes --> more{"More mocks?"}
-  success -- no --> error2["Show the file name and the reason, then stop and remove the server"]
-  error2 --> end3(["END: error"])
+  success -- no --> error4["Show the file name and the reason, then stop and remove the server"]
+  error4 --> end5(["END: error"])
 
   more -- yes --> load
   more -- no --> done["Mocks reloaded"]
-  done --> end4(["END: success"])
+  done --> end6(["END: success"])
 ```
 
-`disable` also works while the server is stopped, so that you can switch off an invalid mock after a failed start.
+- The prefix ignores case and is matched as plain text, so `*` is not a wildcard.
+- `disable` looks in the active mocks, and `enable` looks in the disabled mocks.
+- Every matching file is moved. If any of them already exists in the other folder, nothing is moved.
+- `disable` also works while the server is stopped, so that you can switch off invalid mocks after a failed start.
