@@ -2,7 +2,9 @@
 
 set -euo pipefail
 
-readonly INPUT_ARG="${1:-}"
+readonly VERB_ARG="${1:-}"
+readonly FILE_ARG="${2:-}"
+
 readonly VERSION="0.1.0"
 readonly DEPENDENCIES=(podman curl jq)
 readonly LOG_FILE="wiremockctl.log"
@@ -44,11 +46,11 @@ log_error() {
 }
 
 log_run() {
-  { printf "====== Run [%s] ======\n" "$INPUT_ARG" >>"$LOG_FILE"; } 2>/dev/null || true
+  { printf "====== Run [%s] ======\n" "$VERB_ARG" >>"$LOG_FILE"; } 2>/dev/null || true
 }
 
 log_end() {
-  { printf "====== End [%s] ======\n\n" "$INPUT_ARG" >>"$LOG_FILE"; } 2>/dev/null || true
+  { printf "====== End [%s] ======\n\n" "$VERB_ARG" >>"$LOG_FILE"; } 2>/dev/null || true
 }
 
 log_stack() {
@@ -126,7 +128,7 @@ lowercase() {
 
 get_cmd() {
   local cmd input
-  input=$(lowercase "$INPUT_ARG")
+  input=$(lowercase "$VERB_ARG")
   for cmd in "${COMMANDS[@]}"; do
     if [[ $cmd == "$input" ]]; then
       echo "$cmd"
@@ -150,8 +152,8 @@ require_cmd() {
     echo " disable   Switches a mock off without deleting it."
     echo " enable    Switches a disabled mock back on."
     echo " version   Shows the installed version."
-    if [[ -n "$INPUT_ARG" ]]; then
-      error "Unknown command '$INPUT_ARG'"
+    if [[ -n "$VERB_ARG" ]]; then
+      error "Unknown command '$VERB_ARG'"
     else
       error "Missing command"
     fi
@@ -461,7 +463,7 @@ load_mock() {
     .errors[0]
     | (if .source.pointer then .source.pointer + ": " else "" end)
       + (.detail | split("\n")[0])' || true)"
-  log_error "$message"
+  log_error "HTTP $code: ${message:-no message}"
   remove_container "$container"
 
   red "REJECTED"
@@ -539,6 +541,112 @@ cmd_stop() {
   stop_container "$container"
 }
 
+find_mocks() {
+  local folder="$1" prefix="$2"
+
+  local lower_prefix
+  lower_prefix="$(lowercase "$prefix")"
+
+  log_info "Searching mocks in '$folder' with prefix '${lower_prefix}'"
+  local file name
+  for file in "$folder"/*.json; do
+    [[ -e $file ]] || continue
+    name="$(lowercase "$(basename "$file")")"
+    if [[ $name == "$lower_prefix"* ]]; then
+      echo "$file"
+    fi
+  done
+}
+
+move_mocks() {
+  local from="$1" to="$2" status="$3"
+
+  local matches
+  matches="$(find_mocks "$from" "$FILE_ARG")"
+  if [[ -z $matches ]]; then
+    error "No mocks in '$from' starting with '$FILE_ARG'"
+  fi
+
+  local match_count file name conflicts=""
+  match_count=$(printf '%s\n' "$matches" | wc -l)
+  log_info "Found $match_count mocks... Checking for duplicates"
+  while IFS= read -r file; do
+    name="$(basename "$file")"
+    if [[ -e $to/$name ]]; then
+      [[ -n "$conflicts" ]] && conflicts+=", "
+      conflicts+="'$name'"
+    fi
+  done <<<"$matches"
+  if [[ -n $conflicts ]]; then
+    error "Folder '$to' already contains $conflicts"
+  fi
+
+  log_info "No duplicates! Moving $match_count mocks"
+  local width
+  width="$(get_width)"
+  while IFS= read -r file; do
+    label "$(basename "$file")" "$width"
+    mv -- "$file" "$to/"
+    green "$status"
+  done <<<"$matches"
+  log_info "Successfully moved from '$from' to '$to'"
+}
+
+reset_mocks() {
+  local port
+  port="$(get_setting WIREMOCK_PORT)"
+
+  label "Reset"
+  local code
+  code="$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://localhost:${port}/__admin/mappings/reset" || true)"
+  if [[ $code == "200" ]]; then
+    green "OK"
+    return
+  fi
+  red "FAILED"
+
+  local name
+  name="$(container_name)"
+  log_error "Removing container '$name'... Container logs:"
+  podman logs "$name" >>"$LOG_FILE" 2>&1 || true
+  remove_container "$name"
+  error "Failed to reset mocks (HTTP $code), see $LOG_FILE"
+}
+
+reload_mocks() {
+  if ! server_is_up; then
+    log_info "Server not running, nothing to reload"
+    return
+  fi
+
+  banner "CLEARING MOCKS"
+  reset_mocks
+
+  banner "LOADING MOCKS"
+  load_mocks "$(container_name)"
+}
+
+toggle_mocks() {
+  if ((${#FILE_ARG} < 3)); then
+    error "Name must have at least 3 characters (got '$FILE_ARG')"
+  fi
+
+  local from="$1" to="$2" status="$3"
+  log_info "Working directory is '$(pwd)'"
+
+  banner "MOVING MOCKS"
+  move_mocks "$from" "$to" "$status"
+  reload_mocks
+}
+
+cmd_disable() {
+  toggle_mocks "mappings" "disabled" "DISABLED"
+}
+
+cmd_enable() {
+  toggle_mocks "disabled" "mappings" "ENABLED"
+}
+
 trap cleanup EXIT
 
 log_run
@@ -577,6 +685,12 @@ case "$COMMAND" in
     ;;
   "stop")
     cmd_stop
+    ;;
+  "disable")
+    cmd_disable
+    ;;
+  "enable")
+    cmd_enable
     ;;
   *)
     error "Command '$COMMAND' not implemented"
