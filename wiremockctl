@@ -144,14 +144,14 @@ require_cmd() {
     banner ".:: WIREMOCKCTL ::."
     echo
     echo "Commands:"
-    echo " init      Sets up the folder structure and settings file for a new mock server."
-    echo " start     Starts the WireMock server in a Podman container and loads all active mocks."
-    echo " stop      Stops the WireMock server and removes the Podman container."
-    echo " list      Shows all mocks, active and disabled."
-    echo " add       Guides you through creating a new mock and lets you review it in your editor."
-    echo " disable   Switches a mock off without deleting it."
-    echo " enable    Switches a disabled mock back on."
-    echo " version   Shows the installed version."
+    echo " init                    Sets up the folder structure and settings file for a new mock server."
+    echo " start                   Starts the WireMock server in a Podman container and loads all active mocks."
+    echo " stop                    Stops the WireMock server and removes the Podman container."
+    echo " list                    Shows all mocks, active and disabled."
+    echo " add                     Guides you through creating a new mock and lets you review it in your editor."
+    echo " disable <prefix_file>   Switches a mock off without deleting it."
+    echo " enable  <prefix_file>   Switches a disabled mock back on."
+    echo " version                 Shows the installed version."
     if [[ -n "$VERB_ARG" ]]; then
       error "Unknown command '$VERB_ARG'"
     else
