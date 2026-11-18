@@ -471,10 +471,11 @@ load_mock() {
 }
 
 load_mocks() {
-  local count container width file
+  local count container width file port
   count=0
   container="$1"
   width="$(get_width)"
+  port="$(get_setting WIREMOCK_PORT)"
 
   log_info "Loading mocks"
   for file in mappings/*.json; do
@@ -488,7 +489,9 @@ load_mocks() {
     echo "NONE"
   else
     echo
-    magenta "WireMock: http://localhost:$(get_setting WIREMOCK_PORT)/__admin/mappings"
+    magenta "WireMock Useful Links"
+    magenta " http://localhost:$port/__admin/mappings"
+    magenta " http://localhost:$port/__admin/requests"
   fi
 }
 
