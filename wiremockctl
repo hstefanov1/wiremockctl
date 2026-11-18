@@ -10,7 +10,7 @@ readonly DEPENDENCIES=(podman curl jq)
 readonly LOG_FILE="wiremockctl.log"
 readonly SETTINGS_FILE="wiremockctl.env"
 readonly FOLDERS=(mappings __files disabled)
-readonly COMMANDS=(version init start stop list add disable enable)
+readonly COMMANDS=(version init start stop list add reload disable enable)
 readonly SETTINGS=(WIREMOCK_IMAGE WIREMOCK_PORT WIREMOCK_TIMEOUT WIREMOCK_EDITOR)
 readonly SETTINGS_DEFAULT=(
   WIREMOCK_IMAGE=docker.io/wiremock/wiremock
@@ -647,6 +647,14 @@ cmd_enable() {
   toggle_mocks "disabled" "mappings" "ENABLED"
 }
 
+cmd_reload() {
+  if ! server_is_up; then
+    error "Server is not running on port $(get_setting WIREMOCK_PORT), use start"
+  fi
+  log_info "Working directory is '$(pwd)'"
+  reload_mocks
+}
+
 trap cleanup EXIT
 
 log_run
@@ -664,7 +672,7 @@ if [[ $COMMAND != "init" && $COMMAND != "version" ]]; then
   if [[ -t 1 ]]; then
     echo
     echo -n "Initializing: $COMMAND "
-    sleep 1
+    sleep .6
     require_cmd
   fi
 fi
@@ -691,6 +699,9 @@ case "$COMMAND" in
     ;;
   "enable")
     cmd_enable
+    ;;
+  "reload")
+    cmd_reload
     ;;
   *)
     error "Command '$COMMAND' not implemented"

@@ -40,6 +40,7 @@ Run `wiremockctl init` to create this structure.
 | `wiremockctl stop`                  | Stops the WireMock server and removes the Podman container.                            | [View](docs/command-stop.md)           |
 | `wiremockctl list`                  | Shows all mocks, active and disabled.                                                  | [View](docs/command-list.md)           |
 | `wiremockctl add`                   | Guides you through creating a new mock and lets you review it in your editor.          | [View](docs/command-add.md)            |
+| `wiremockctl reload`                | Reloads all mocks on the running server without restarting it.                         | [View](docs/command-reload.md)         |
 | `wiremockctl disable <prefix_file>` | Switches off every mock whose file name starts with the prefix, without deleting them. | [View](docs/command-disable-enable.md) |
 | `wiremockctl enable <prefix_file>`  | Switches back on every disabled mock whose file name starts with the prefix.           | [View](docs/command-disable-enable.md) |
 | `wiremockctl version`               | Shows the installed version.                                                           | -                                      |
